@@ -1,17 +1,76 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import util
+
 app = Flask(__name__)
+import json
+import pickle
+import numpy as np
+
+__locations = None
+__data_columns = None
+__model = None
 
 
-@app.route('/get_location_names')
+def get_estimated_price(location, sqft, bhk, bath):
+    try:
+        loc_index = __data_columns.index(location.lower())
+    except:
+        loc_index = -1
+    x = np.zeros(len(__data_columns))
+    x[0] = sqft
+    x[1] = bath
+    x[2] = bhk
+    if loc_index >= 0:
+        x[loc_index] = 1
+
+    return round(__model.predict([x])[0], 2)
+
+
 def get_location_names():
-    response = jsonify({
+    return __locations
+
+
+def load_saved_artifacts():
+    print("loading saved artifacts.. start")
+    global __data_columns
+    global __locations
+    global __model
+
+    with open('./artifacts/columns.json', 'r') as f:
+        __data_columns = json.load(f)["data_columns"]
+        __locations = __data_columns[3:]
+
+    with open("./artifacts/banglore_home_prices_model.pickle", 'rb') as f:
+        __model = pickle.load(f)
+    print("loading saved articfacts... done!")
+
+
+@app.route('/get_location_names', methods=['GET'])
+def get_location_names():
+    response: Response = jsonify({
         'locations': util.get_location_names()
     })
-    return "hi"
+    response.headers.add('Access-Control-Allow-Origin', '*')
+
+    return response
+
+
+@app.route('/predict_home_price', methods=['GET', 'POST'])
+def predict_home_price():
+    total_sqft = float(request.form['total_sqft'])
+    location = request.form['location']
+    bhk = int(request.form['bhk'])
+    bath = int(request.form['bath'])
+
+    response = jsonify({
+        'estimated_price': util.get_estimated_price(location, total_sqft, bhk, bath)
+    })
+    response.headers.add('Access-Control-Allow-Origin', '*')
+
+    return response
 
 
 if __name__ == "__main__":
-    print("starting Python Flash Service")
-
-    app.run(port=5050)
+    print("Starting Python Flask Server For Home Price Prediction...")
+    util.load_saved_artifacts()
+    app.run()
